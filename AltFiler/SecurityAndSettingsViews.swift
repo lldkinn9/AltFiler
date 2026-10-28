@@ -28,7 +28,8 @@ struct OnboardingSheetView: View {
             highlights: [
                 ("lock.shield.fill", "第三者に悟られない「ステルス仕様のフォルダロック」"),
                 ("faceid", "Face ID / Touch ID ＆ Keychain (SHA-256) 暗号化保護"),
-                ("eye.slash.fill", "マルチタスク画面での覗き見を防ぐプライバシーシールド")
+                ("eye.slash.fill", "マルチタスク画面での覗き見を防ぐプライバシーシールド"),
+                ("internaldrive.fill", "アプリ利用容量とiPhoneの残ストレージを画面下部に常時表示")
             ]
         ),
         OnboardingSlide(

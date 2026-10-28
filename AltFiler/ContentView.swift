@@ -777,9 +777,19 @@ struct ContentView: View {
                 .disabled(selectedURLs.isEmpty)
                 
                 Button(action: {
-                    fileManager.deleteItems(urls: Array(selectedURLs))
+                    let targets = Array(selectedURLs)
+                    let containsProtected = targets.contains { fileManager.isProtectedDownloadFolder($0) }
+                    fileManager.deleteItems(urls: targets)
                     selectedURLs.removeAll()
                     isSelectionMode = false
+                    if containsProtected {
+                        withAnimation {
+                            importedNotificationText = "※「ダウンロード」フォルダは外部取込用のため削除できません"
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+                            withAnimation { importedNotificationText = nil }
+                        }
+                    }
                 }) {
                     HStack(spacing: 4) {
                         Image(systemName: "trash.fill")
@@ -1215,19 +1225,21 @@ struct ContentView: View {
             Label("コピー", systemImage: "doc.on.doc")
         }
         
-        Button(action: {
-            singleActionTargetURLs = [item.url]
-            folderPickerAction = .move
-            showFolderPicker = true
-        }) {
-            Label("移動", systemImage: "folder.line.flat")
-        }
-        
-        Button(action: {
-            renameTargetItem = item
-            renameNewName = item.name
-        }) {
-            Label("名称変更", systemImage: "pencil")
+        if !fileManager.isProtectedDownloadFolder(item.url) {
+            Button(action: {
+                singleActionTargetURLs = [item.url]
+                folderPickerAction = .move
+                showFolderPicker = true
+            }) {
+                Label("移動", systemImage: "folder.line.flat")
+            }
+            
+            Button(action: {
+                renameTargetItem = item
+                renameNewName = item.name
+            }) {
+                Label("名称変更", systemImage: "pencil")
+            }
         }
         
         Divider()
@@ -1275,12 +1287,14 @@ struct ContentView: View {
             Label("選択", systemImage: "checkmark.circle")
         }
         
-        Divider()
-        
-        Button(role: .destructive, action: {
-            try? fileManager.deleteItem(at: item.url)
-        }) {
-            Label("削除", systemImage: "trash.fill")
+        if !fileManager.isProtectedDownloadFolder(item.url) {
+            Divider()
+            
+            Button(role: .destructive, action: {
+                try? fileManager.deleteItem(at: item.url)
+            }) {
+                Label("削除", systemImage: "trash.fill")
+            }
         }
     }
     

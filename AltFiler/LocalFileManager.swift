@@ -221,8 +221,18 @@ public final class LocalFileManager: ObservableObject {
         refreshStorageInfo()
     }
     
-    /// 単一アイテムの物理完全削除
+    /// 指定されたURLがシステム保護対象の「ダウンロード」フォルダ（ルート直下）かどうか判定
+    public func isProtectedDownloadFolder(_ url: URL) -> Bool {
+        let downloadURL = rootDirectoryURL.appendingPathComponent("ダウンロード", isDirectory: true)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+        let targetURL = url.resolvingSymlinksInPath().standardizedFileURL
+        return targetURL.path == downloadURL.path
+    }
+    
+    /// 単一アイテムの物理完全削除（「ダウンロード」フォルダは削除不可）
     public func deleteItem(at url: URL) throws {
+        guard !isProtectedDownloadFolder(url) else { return }
         let fileManager = FileManager.default
         if fileManager.fileExists(atPath: url.path) {
             try fileManager.removeItem(at: url)
@@ -230,10 +240,11 @@ public final class LocalFileManager: ObservableObject {
         refreshStorageInfo()
     }
     
-    /// 複数アイテムの物理完全削除
+    /// 複数アイテムの物理完全削除（「ダウンロード」フォルダは削除不可）
     public func deleteItems(urls: [URL]) {
         let fileManager = FileManager.default
         for url in urls {
+            guard !isProtectedDownloadFolder(url) else { continue }
             if fileManager.fileExists(atPath: url.path) {
                 try? fileManager.removeItem(at: url)
             }
@@ -241,16 +252,21 @@ public final class LocalFileManager: ObservableObject {
         refreshStorageInfo()
     }
     
-    /// アイテムの名前変更
+    /// アイテムの名前変更（「ダウンロード」フォルダは名称変更不可）
     public func renameItem(at url: URL, to newName: String) throws {
+        guard !isProtectedDownloadFolder(url) else { return }
         let destinationURL = url.deletingLastPathComponent().appendingPathComponent(newName)
         try FileManager.default.moveItem(at: url, to: destinationURL)
         refreshStorageInfo()
     }
     
-    /// 複数アイテムの移動
+    /// 複数アイテムの移動（「ダウンロード」フォルダ自体は移動不可）
     public func moveItems(urls: [URL], to destinationDirURL: URL, completion: (() -> Void)? = nil) {
-        guard !urls.isEmpty else { return }
+        let movableURLs = urls.filter { !isProtectedDownloadFolder($0) }
+        guard !movableURLs.isEmpty else {
+            completion?()
+            return
+        }
         DispatchQueue.global(qos: .userInitiated).async {
             DispatchQueue.main.async {
                 self.isOperating = true
@@ -259,9 +275,9 @@ public final class LocalFileManager: ObservableObject {
             }
             
             let fileManager = FileManager.default
-            let total = Double(urls.count)
+            let total = Double(movableURLs.count)
             
-            for (index, sourceURL) in urls.enumerated() {
+            for (index, sourceURL) in movableURLs.enumerated() {
                 let destinationURL = destinationDirURL.appendingPathComponent(sourceURL.lastPathComponent)
                 if sourceURL != destinationURL {
                     if fileManager.fileExists(atPath: destinationURL.path) {
