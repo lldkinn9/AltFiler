@@ -34,7 +34,7 @@ struct OnboardingSheetView: View {
         OnboardingSlide(
             badge: "PRO MEDIA PLAYER",
             title: "動画・音声・画像を\n妥協なく快適再生",
-            subtitle: "単なる保管庫にとどまらず、取り込んだメディアを標準アプリ以上に快適に楽しめるオールインワンプレイヤーを搭載しています。",
+            subtitle: "取り込んだメディアを標準アプリ以上に快適に楽しめるオールインワンプレイヤーを搭載しています。",
             iconName: "play.rectangle.on.rectangle.fill",
             accentColors: [.blue, .purple],
             highlights: [

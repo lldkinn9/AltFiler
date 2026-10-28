@@ -62,15 +62,16 @@ struct CosmicTheme {
     static let cosmicTextSub = Color.white.opacity(0.6)
 }
 
-// MARK: - Main View (AltFiler v1.0.4)
+// MARK: - Main View (AltFiler 1.0)
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var fileManager = LocalFileManager.shared
     @StateObject private var lockManager = FolderLockManager.shared
     @StateObject private var playbackManager = PlaybackManager.shared
     
-    private let appVersion = "v1.0.4"
+    private let appVersion = "1.0"
     private let onboardingSeenKey = "AltFiler_HasSeenOnboarding"
+    @AppStorage("AltFiler_FirstFolderGuideCompleted") private var isFirstFolderGuideCompleted: Bool = false
     
     @State private var currentDirectoryURL: URL? = nil
     @State private var searchQuery: String = ""
@@ -333,9 +334,11 @@ struct ContentView: View {
             TextField("フォルダ名", text: $newFolderName)
             Button("キャンセル", role: .cancel) { newFolderName = "" }
             Button("作成") {
-                if !newFolderName.isEmpty {
-                    try? fileManager.createDirectory(named: newFolderName, parentURL: currentDirectoryURL)
+                let trimmed = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    try? fileManager.createDirectory(named: trimmed, parentURL: currentDirectoryURL)
                     newFolderName = ""
+                    isFirstFolderGuideCompleted = true
                 }
             }
         }
@@ -510,9 +513,9 @@ struct ContentView: View {
         .padding(.bottom, 8)
     }
     
-    // MARK: - Bottom Control Bar (戻るボタン, 3点リーダメニュー)
+    // MARK: - Bottom Control Bar (戻るボタン, 3点リーダメニュー, ＋新規フォルダ作成ボタン)
     private var bottomControlBarView: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 14) {
             // 戻るボタン
             Button(action: {
                 if currentDirectoryURL != nil {
@@ -522,7 +525,7 @@ struct ContentView: View {
                 }
             }) {
                 Image(systemName: "chevron.left.circle.fill")
-                    .font(.system(size: 22))
+                    .font(.system(size: 24))
                     .foregroundColor(currentDirectoryURL != nil ? CosmicTheme.nebulaCyan : CosmicTheme.cosmicTextSub.opacity(0.3))
             }
             .disabled(currentDirectoryURL == nil)
@@ -582,6 +585,36 @@ struct ContentView: View {
                     .font(.system(size: 24))
                     .foregroundColor(isSelectionMode ? CosmicTheme.nebulaCyan : CosmicTheme.nebulaPurple)
                     .shadow(color: CosmicTheme.nebulaPurple.opacity(0.8), radius: 6)
+            }
+            
+            // 「…」の右隣：ワンタップ新規フォルダ作成「＋」ボタン
+            Button(action: {
+                showNewFolderAlert = true
+            }) {
+                HStack(spacing: 5) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(CosmicTheme.nebulaCyan)
+                        .shadow(color: CosmicTheme.nebulaCyan.opacity(0.85), radius: shouldShowFirstFolderLead ? 8 : 4)
+                    
+                    if shouldShowFirstFolderLead {
+                        Text("新規フォルダ")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundColor(CosmicTheme.nebulaCyan)
+                            .padding(.trailing, 4)
+                    }
+                }
+                .padding(.vertical, 2)
+                .padding(.horizontal, shouldShowFirstFolderLead ? 6 : 0)
+                .background(
+                    Group {
+                        if shouldShowFirstFolderLead {
+                            Capsule()
+                                .fill(CosmicTheme.nebulaCyan.opacity(0.15))
+                                .overlay(Capsule().stroke(CosmicTheme.nebulaCyan.opacity(0.6), lineWidth: 1))
+                        }
+                    }
+                )
             }
             
             Spacer()
@@ -768,29 +801,150 @@ struct ContentView: View {
         .border(width: 1, edges: [.bottom], color: CosmicTheme.nebulaCyan.opacity(0.4))
     }
     
+    // MARK: - 初回起動時の新規フォルダ作成リード表示判定
+    private var shouldShowFirstFolderLead: Bool {
+        currentDirectoryURL == nil && searchQuery.isEmpty && !isFirstFolderGuideCompleted && fileManager.rootItems.count <= 1
+    }
+    
+    // MARK: - 初回フォルダ作成を促すリード画面カード
+    private var firstFolderLeadCardView: some View {
+        VStack(spacing: 14) {
+            HStack {
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(CosmicTheme.nebulaCyan)
+                    Text("FIRST STEP GUIDE")
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .tracking(1.5)
+                        .foregroundColor(CosmicTheme.nebulaCyan)
+                }
+                Spacer()
+                Button(action: {
+                    withAnimation {
+                        isFirstFolderGuideCompleted = true
+                    }
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundColor(CosmicTheme.cosmicTextSub.opacity(0.7))
+                }
+            }
+            
+            ZStack {
+                Circle()
+                    .fill(CosmicTheme.nebulaCyan.opacity(0.14))
+                    .frame(width: 64, height: 64)
+                    .overlay(Circle().stroke(CosmicTheme.nebulaCyan.opacity(0.45), lineWidth: 1))
+                Image(systemName: "folder.badge.plus")
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundColor(CosmicTheme.nebulaCyan)
+            }
+            .padding(.top, 2)
+            
+            VStack(spacing: 6) {
+                Text("まずは「＋」ボタンから\n最初のフォルダを作ってみましょう")
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundColor(CosmicTheme.starlightWhite)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(3)
+                
+                Text("画面下部の「＋」ボタンを押すと、いつでも新しいフォルダを作成できます。「写真」「動画」「プライベート」など用途に合わせて自由に作成し、長押しメニューからロック保護（Face ID / Touch ID）も設定できます。")
+                    .font(.system(size: 12))
+                    .foregroundColor(CosmicTheme.cosmicTextSub)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(3)
+                    .padding(.horizontal, 4)
+            }
+            
+            Button(action: {
+                showNewFolderAlert = true
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "plus.circle.fill")
+                    Text("最初のフォルダを作成する")
+                        .fontWeight(.bold)
+                }
+                .font(.system(size: 14, design: .rounded))
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(
+                    LinearGradient(
+                        colors: [CosmicTheme.nebulaCyan, CosmicTheme.nebulaPurple],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .cornerRadius(12)
+                .shadow(color: CosmicTheme.nebulaCyan.opacity(0.35), radius: 8, y: 2)
+            }
+            .padding(.top, 4)
+            
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.down.left")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(CosmicTheme.nebulaCyan)
+                Text("画面左下の「＋ 新規フォルダ」からもワンタップで作成できます")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(CosmicTheme.nebulaCyan)
+            }
+            .padding(.top, 2)
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(CosmicTheme.deepSpaceCard)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(
+                            LinearGradient(
+                                colors: [CosmicTheme.nebulaCyan.opacity(0.65), CosmicTheme.nebulaPurple.opacity(0.55)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1.5
+                        )
+                )
+                .shadow(color: CosmicTheme.nebulaCyan.opacity(0.18), radius: 12)
+        )
+    }
+    
     // MARK: - File Content View
     private var fileContentView: some View {
         let items = filteredAndSortedItems
         
         return Group {
             if items.isEmpty {
-                VStack(spacing: 12) {
+                VStack(spacing: 16) {
                     Spacer()
-                    Image(systemName: "folder.badge.questionmark")
-                        .font(.system(size: 48))
-                        .foregroundColor(CosmicTheme.cosmicTextSub.opacity(0.5))
-                    Text("ファイルやフォルダが存在しません")
-                        .font(.system(size: 13, design: .monospaced))
-                        .foregroundColor(CosmicTheme.cosmicTextSub)
+                    if shouldShowFirstFolderLead {
+                        firstFolderLeadCardView
+                            .padding(.horizontal, 16)
+                    } else {
+                        Image(systemName: "folder.badge.questionmark")
+                            .font(.system(size: 48))
+                            .foregroundColor(CosmicTheme.cosmicTextSub.opacity(0.5))
+                        Text("ファイルやフォルダが存在しません")
+                            .font(.system(size: 13, design: .monospaced))
+                            .foregroundColor(CosmicTheme.cosmicTextSub)
+                    }
                     Spacer()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
             } else if isGridView {
                 ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 200), spacing: 14)], spacing: 16) {
-                        ForEach(items) { item in
-                            gridCell(for: item)
+                    VStack(spacing: 20) {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 200), spacing: 14)], spacing: 16) {
+                            ForEach(items) { item in
+                                gridCell(for: item)
+                            }
+                        }
+                        
+                        if shouldShowFirstFolderLead {
+                            firstFolderLeadCardView
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
                         }
                     }
                     .padding(16)
@@ -800,6 +954,12 @@ struct ContentView: View {
                     ForEach(items) { item in
                         listRow(for: item)
                             .listRowBackground(CosmicTheme.deepSpaceCard)
+                    }
+                    if shouldShowFirstFolderLead {
+                        firstFolderLeadCardView
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .padding(.vertical, 8)
                     }
                 }
                 .listStyle(.plain)

@@ -1,7 +1,7 @@
 # PROJECT_STATE.md - AltFiler 開発ステータス・変更履歴
 
 ## 現在のバージョン
-- **Version**: `v1.0.4`
+- **Version**: `1.0`（App Store Connect リリース版表記と統一）
 - **Build**: `1`
 - **最終更新**: 2026-10-28 (JST)
 

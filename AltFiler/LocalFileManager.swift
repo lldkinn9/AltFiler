@@ -29,8 +29,8 @@ public final class LocalFileManager: ObservableObject {
     /// アプリ独立ストレージのルートディレクトリ (`Application Support/AltFilerStorage`)
     public let rootDirectoryURL: URL
     
-    /// 初期フォルダの名称リスト
-    public let defaultFolderNames = ["ダウンロード", "画像", "動画", "音声"]
+    /// 初期フォルダの名称リスト（「ダウンロード」のみ）
+    public let defaultFolderNames = ["ダウンロード"]
     
     @Published public private(set) var rootItems: [FileItem] = []
     @Published public private(set) var appStorageBytes: Int64 = 0
@@ -79,17 +79,30 @@ public final class LocalFileManager: ObservableObject {
         }
     }
     
-    /// 初期状態の必須フォルダ（ダウンロード・画像・動画・音声）が存在するか確認し、なければ作成する
+    /// 初期状態の必須フォルダ（「ダウンロード」のみ）が存在するか確認し、なければ作成する
     public func ensureDefaultFoldersExist() {
+        let fileManager = FileManager.default
         for folderName in defaultFolderNames {
             let folderURL = rootDirectoryURL.appendingPathComponent(folderName, isDirectory: true)
-            if !FileManager.default.fileExists(atPath: folderURL.path) {
+            if !fileManager.fileExists(atPath: folderURL.path) {
                 do {
-                    try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true, attributes: nil)
+                    try fileManager.createDirectory(at: folderURL, withIntermediateDirectories: true, attributes: nil)
                 } catch {
                     print("[LocalFileManager] 初期フォルダ作成エラー (\(folderName)): \(error)")
                 }
             }
+        }
+        
+        // 旧仕様の空フォルダ（画像・動画・音声）が残っている場合は初回のみ自動クリーンアップ
+        let cleanupKey = "AltFiler_CleanedLegacyDefaultFolders_v1"
+        if !UserDefaults.standard.bool(forKey: cleanupKey) {
+            for legacyName in ["画像", "動画", "音声"] {
+                let legacyFolderURL = rootDirectoryURL.appendingPathComponent(legacyName, isDirectory: true)
+                if let contents = try? fileManager.contentsOfDirectory(atPath: legacyFolderURL.path), contents.isEmpty {
+                    try? fileManager.removeItem(at: legacyFolderURL)
+                }
+            }
+            UserDefaults.standard.set(true, forKey: cleanupKey)
         }
     }
     
