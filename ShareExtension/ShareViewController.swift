@@ -70,3 +70,4 @@ class ShareViewController: UIViewController {
         extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
     }
 }
+
