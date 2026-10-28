@@ -240,6 +240,7 @@ struct SettingsSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var lockManager: FolderLockManager
     @ObservedObject var fileManager: LocalFileManager
+    @ObservedObject private var proManager = ProUpgradeManager.shared
     let appVersion: String
     var onShowOnboarding: () -> Void
     
@@ -256,6 +257,157 @@ struct SettingsSheetView: View {
                     .ignoresSafeArea()
                 
                 List {
+                    // セクション0: 広告非表示（AltFiler Pro アップグレード案内カード）
+                    Section {
+                        if proManager.isProUnlocked {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "crown.fill")
+                                        .font(.system(size: 20))
+                                        .foregroundStyle(.yellow)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("AltFiler Pro（広告非表示）有効中")
+                                            .font(.subheadline.weight(.bold))
+                                            .foregroundStyle(.white)
+                                        Text("すべての広告が非表示になり、全機能を快適にご利用いただけます。")
+                                            .font(.caption2)
+                                            .foregroundStyle(.white.opacity(0.65))
+                                    }
+                                    Spacer()
+                                }
+                                
+                                Button {
+                                    withAnimation {
+                                        proManager.isProUnlocked = false
+                                        proManager.isAdBannerMockEnabled = true
+                                        proManager.statusMessage = nil
+                                    }
+                                } label: {
+                                    Text("無料版（広告バナー表示）のプレビューに戻す")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.cyan)
+                                }
+                                .padding(.top, 2)
+                            }
+                            .padding(.vertical, 4)
+                        } else {
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack(alignment: .top, spacing: 12) {
+                                    ZStack {
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .fill(
+                                                LinearGradient(
+                                                    colors: [.cyan.opacity(0.28), .purple.opacity(0.28)],
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                )
+                                            )
+                                            .frame(width: 44, height: 44)
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                                    .strokeBorder(Color.cyan.opacity(0.5), lineWidth: 1)
+                                            )
+                                        Image(systemName: "sparkles")
+                                            .font(.system(size: 20, weight: .bold))
+                                            .foregroundStyle(.cyan)
+                                    }
+                                    
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        HStack(spacing: 6) {
+                                            Text("AltFiler Pro")
+                                                .font(.headline.weight(.black))
+                                                .foregroundStyle(.white)
+                                            Text("買い切り")
+                                                .font(.system(size: 10, weight: .bold))
+                                                .foregroundStyle(.cyan)
+                                                .padding(.horizontal, 7)
+                                                .padding(.vertical, 2)
+                                                .background(Capsule().fill(Color.cyan.opacity(0.16)))
+                                        }
+                                        Text("一度の購入で画面下部のバナー広告を永久に非表示にします。保存済みのファイルやロック設定はそのまま引き継がれます。")
+                                            .font(.caption)
+                                            .foregroundStyle(.white.opacity(0.72))
+                                            .lineSpacing(2)
+                                    }
+                                }
+                                
+                                Button {
+                                    Task {
+                                        await proManager.purchasePro()
+                                    }
+                                } label: {
+                                    HStack {
+                                        Spacer()
+                                        if proManager.isPurchasing {
+                                            ProgressView()
+                                                .tint(.white)
+                                        } else {
+                                            Image(systemName: "checkmark.seal.fill")
+                                            Text("広告を非表示にする（\(proManager.displayPrice)・買い切り）")
+                                                .font(.subheadline.weight(.bold))
+                                        }
+                                        Spacer()
+                                    }
+                                    .foregroundStyle(.white)
+                                    .padding(.vertical, 12)
+                                    .background(
+                                        LinearGradient(colors: [.cyan, .blue], startPoint: .leading, endPoint: .trailing),
+                                        in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                                
+                                HStack {
+                                    Button {
+                                        Task {
+                                            await proManager.restorePurchases()
+                                        }
+                                    } label: {
+                                        Text("購入を復元する（機種変更時など）")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(.cyan)
+                                    }
+                                    .buttonStyle(.plain)
+                                    
+                                    Spacer()
+                                    
+                                    Text("App Store 公式決済")
+                                        .font(.caption2)
+                                        .foregroundStyle(.white.opacity(0.45))
+                                }
+                                
+                                if let msg = proManager.statusMessage {
+                                    Text(msg)
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(.green)
+                                }
+                            }
+                            .padding(.vertical, 6)
+                        }
+                        
+                        Toggle(isOn: $proManager.isAdBannerMockEnabled) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "rectangle.bottomthird.inset.filled")
+                                    .foregroundStyle(.cyan)
+                                    .frame(width: 26)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("広告バナーのデザインモック表示")
+                                        .font(.subheadline.weight(.medium))
+                                        .foregroundStyle(.white)
+                                    Text("メイン画面下部でのバナー広告の見え方を確認します")
+                                        .font(.caption2)
+                                        .foregroundStyle(.white.opacity(0.55))
+                                }
+                            }
+                        }
+                        .tint(.cyan)
+                        .disabled(proManager.isProUnlocked)
+                    } header: {
+                        Text("プレミアム・広告非表示 (AltFiler Pro)")
+                            .foregroundStyle(.cyan)
+                    }
+                    .listRowBackground(Color.white.opacity(0.05))
+                    
                     // セクション1: セキュリティとプライバシー保護
                     Section {
                         Button {

@@ -68,6 +68,7 @@ struct ContentView: View {
     @StateObject private var fileManager = LocalFileManager.shared
     @StateObject private var lockManager = FolderLockManager.shared
     @StateObject private var playbackManager = PlaybackManager.shared
+    @StateObject private var proManager = ProUpgradeManager.shared
     
     private let appVersion = "1.0"
     private let onboardingSeenKey = "AltFiler_HasSeenOnboarding"
@@ -204,8 +205,16 @@ struct ContentView: View {
                 // MARK: - Mini Player (継続再生ミニプレーヤー)
                 miniPlayerView
                 
-                // MARK: - Bottom Control Bar (戻るボタン, 3点リーダメニュー)
+                // MARK: - Bottom Control Bar (戻るボタン, 3点リーダメニュー, ＋新規フォルダボタン)
                 bottomControlBarView
+                
+                // MARK: - Ad Banner Slot (無料版バナー広告表示エリア 50pt / Pro版では完全非表示)
+                if proManager.shouldDisplayAdBanner {
+                    AdBannerSlotView {
+                        showSettingsSheet = true
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
                 
                 // MARK: - Storage Meter (ストレージ使用量メーター)
                 storageMeterView
