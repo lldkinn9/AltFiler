@@ -266,18 +266,40 @@ public final class FolderLockManager: ObservableObject {
     
     // MARK: - 生体認証 (Face ID / Touch ID)
     
-    /// 端末が生体認証に対応しているか＆種類名を取得
+    /// 端末で生体認証（Face ID / Touch ID）が利用可能か
+    public var isBiometricsAvailable: Bool {
+        let context = LAContext()
+        var error: NSError?
+        return context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
+    }
+    
+    /// 端末が生体認証に対応しているか＆種類名を取得（Touch ID 端末では自動で "Touch ID" に切り替わる）
     public var biometricTypeName: String {
         let context = LAContext()
         var error: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
-            return "生体認証"
+            return "生体認証 (Face ID / Touch ID)"
         }
         switch context.biometryType {
         case .faceID: return "Face ID"
         case .touchID: return "Touch ID"
         case .opticID: return "Optic ID"
         @unknown default: return "生体認証"
+        }
+    }
+    
+    /// 端末の生体認証種別に応じた SF Symbols アイコン名（Touch ID 端末では指紋アイコン "touchid"）
+    public var biometricIconName: String {
+        let context = LAContext()
+        var error: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
+            return "touchid"
+        }
+        switch context.biometryType {
+        case .faceID: return "faceid"
+        case .touchID: return "touchid"
+        case .opticID: return "opticid"
+        @unknown default: return "touchid"
         }
     }
     

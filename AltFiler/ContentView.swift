@@ -62,14 +62,14 @@ struct CosmicTheme {
     static let cosmicTextSub = Color.white.opacity(0.6)
 }
 
-// MARK: - Main View (AltFiler v1.0.3)
+// MARK: - Main View (AltFiler v1.0.4)
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var fileManager = LocalFileManager.shared
     @StateObject private var lockManager = FolderLockManager.shared
     @StateObject private var playbackManager = PlaybackManager.shared
     
-    private let appVersion = "v1.0.3"
+    private let appVersion = "v1.0.4"
     private let onboardingSeenKey = "AltFiler_HasSeenOnboarding"
     
     @State private var currentDirectoryURL: URL? = nil

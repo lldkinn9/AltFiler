@@ -317,7 +317,7 @@ struct SettingsSheetView: View {
                         
                         Toggle(isOn: $lockManager.isBiometricsEnabled) {
                             HStack(spacing: 12) {
-                                Image(systemName: "faceid")
+                                Image(systemName: lockManager.biometricIconName)
                                     .foregroundStyle(.cyan)
                                     .frame(width: 26)
                                 VStack(alignment: .leading, spacing: 2) {
@@ -599,7 +599,7 @@ struct MasterPasswordChangeSheet: View {
                                         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.08)))
                                         .foregroundStyle(.white)
                                     
-                                    if lockManager.isBiometricsEnabled {
+                                    if lockManager.isBiometricsEnabled && lockManager.isBiometricsAvailable {
                                         Button {
                                             lockManager.authenticateWithBiometrics(reason: "マスターパスワードを変更するために本人確認を行います") { success in
                                                 if success {
@@ -609,7 +609,7 @@ struct MasterPasswordChangeSheet: View {
                                             }
                                         } label: {
                                             HStack {
-                                                Image(systemName: "faceid")
+                                                Image(systemName: lockManager.biometricIconName)
                                                 Text("\(lockManager.biometricTypeName) で本人確認する")
                                             }
                                             .font(.footnote.weight(.semibold))
@@ -788,12 +788,12 @@ struct AppLockOverlayView: View {
                             )
                     }
                     
-                    if lockManager.isBiometricsEnabled {
+                    if lockManager.isBiometricsEnabled && lockManager.isBiometricsAvailable {
                         Button {
                             triggerBiometrics()
                         } label: {
                             HStack(spacing: 8) {
-                                Image(systemName: "faceid")
+                                Image(systemName: lockManager.biometricIconName)
                                 Text("\(lockManager.biometricTypeName) でロック解除")
                             }
                             .font(.subheadline.weight(.semibold))
@@ -982,3 +982,4 @@ struct LegalDocumentSheetView: View {
         .preferredColorScheme(.dark)
     }
 }
+
