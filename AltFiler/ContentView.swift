@@ -62,17 +62,26 @@ struct CosmicTheme {
     static let cosmicTextSub = Color.white.opacity(0.6)
 }
 
-// MARK: - Main View (AltFiler v1.0.0)
+// MARK: - Main View (AltFiler v1.0.3)
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var fileManager = LocalFileManager.shared
     @StateObject private var lockManager = FolderLockManager.shared
     @StateObject private var playbackManager = PlaybackManager.shared
+    
+    private let appVersion = "v1.0.3"
+    private let onboardingSeenKey = "AltFiler_HasSeenOnboarding"
     
     @State private var currentDirectoryURL: URL? = nil
     @State private var searchQuery: String = ""
     @State private var isGridView: Bool = true
     @State private var sortOption: SortOption = .name
     @State private var isAscending: Bool = true
+    
+    // 設定・オンボーディング・プライバシーシールド状態
+    @State private var showSettingsSheet: Bool = false
+    @State private var showOnboardingSheet: Bool = false
+    @State private var isPrivacyShieldVisible: Bool = false
     
     // 選択モード状態
     @State private var isSelectionMode: Bool = false
@@ -200,18 +209,46 @@ struct ContentView: View {
                 // MARK: - Storage Meter (ストレージ使用量メーター)
                 storageMeterView
             }
+            
+            // アプリ起動時ロック画面オーバーレイ
+            if lockManager.isAppLockEnabled && lockManager.hasMasterPassword && !lockManager.isAppUnlockedForSession {
+                AppLockOverlayView(lockManager: lockManager)
+                    .transition(.opacity)
+                    .zIndex(100)
+            }
+            
+            // バックグラウンド移行・マルチタスク画面での覗き見防止シールド
+            if lockManager.isPrivacyShieldEnabled && isPrivacyShieldVisible {
+                PrivacyShieldOverlayView()
+                    .transition(.opacity)
+                    .zIndex(200)
+            }
         }
         .onAppear {
             fileManager.purgeTemporaryDirectory()
             fileManager.refreshStorageInfo()
             loadFavorites()
             checkAppGroupPendingImports()
+            if !UserDefaults.standard.bool(forKey: onboardingSeenKey) {
+                showOnboardingSheet = true
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+            if lockManager.isPrivacyShieldEnabled {
+                isPrivacyShieldVisible = true
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            withAnimation(.easeOut(duration: 0.15)) {
+                isPrivacyShieldVisible = false
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             checkAppGroupPendingImports()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
             fileManager.purgeTemporaryDirectory()
+            lockManager.handleAppDidEnterBackground()
         }
         // 他アプリ・Webからの受取インポート処理（デバウンスバッファ一括対応）
         .onOpenURL { incomingURL in
@@ -381,7 +418,24 @@ struct ContentView: View {
                 ActivityViewControllerBridge(activityItems: [url])
             }
         }
-        // コピー / 移動 最下部ステータスバー (進捗パーセント & プログレスバー)
+        // 設定・アプリ情報シート
+        .sheet(isPresented: $showSettingsSheet) {
+            SettingsSheetView(
+                lockManager: lockManager,
+                fileManager: fileManager,
+                appVersion: appVersion,
+                onShowOnboarding: {
+                    showOnboardingSheet = true
+                }
+            )
+        }
+        // 初回起動オンボーディング（使い方ガイド）シート
+        .fullScreenCover(isPresented: $showOnboardingSheet) {
+            OnboardingSheetView {
+                UserDefaults.standard.set(true, forKey: onboardingSeenKey)
+            }
+        }
+        // コピー / 移動 / ZIP 最下部ステータスバー (進捗パーセント & プログレスバー)
         .safeAreaInset(edge: .bottom) {
             if fileManager.isOperating {
                 VStack(spacing: 6) {
@@ -422,7 +476,7 @@ struct ContentView: View {
                         .font(.system(size: 22, weight: .bold, design: .monospaced))
                         .foregroundColor(CosmicTheme.starlightWhite)
                     
-                    Text("v1.0.0")
+                    Text(appVersion)
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundColor(CosmicTheme.nebulaCyan)
                 }
@@ -436,6 +490,20 @@ struct ContentView: View {
             }
             
             Spacer()
+            
+            Button(action: {
+                showSettingsSheet = true
+            }) {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(CosmicTheme.nebulaCyan)
+                    .padding(8)
+                    .background(
+                        Circle()
+                            .fill(CosmicTheme.deepSpaceCard)
+                            .overlay(Circle().stroke(CosmicTheme.nebulaCyan.opacity(0.35), lineWidth: 1))
+                    )
+            }
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
@@ -503,6 +571,12 @@ struct ContentView: View {
                 Button(action: { isGridView.toggle() }) {
                     Label(isGridView ? "リスト表示に切り替え" : "グリッド表示に切り替え", systemImage: isGridView ? "list.bullet" : "square.grid.2x2")
                 }
+                
+                Divider()
+                
+                Button(action: { showSettingsSheet = true }) {
+                    Label("設定・アプリ情報", systemImage: "gearshape.fill")
+                }
             } label: {
                 Image(systemName: "ellipsis.circle.fill")
                     .font(.system(size: 24))
@@ -554,127 +628,142 @@ struct ContentView: View {
         )
     }
     
-    // MARK: - Selection Action Bar (【全選択】 / 【解除】 / 【共有】 / 【コピー】 / 【移動】 / 【削除】)
+    // MARK: - Selection Action Bar (【全選択】 / 【解除】 / 【ZIP】 / 【共有】 / 【コピー】 / 【移動】 / 【削除】)
     private var selectionActionBarView: some View {
-        HStack(spacing: 6) {
-            Button(action: {
-                let currentURLs = filteredAndSortedItems.map { $0.url }
-                if selectedURLs.count == currentURLs.count {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                Button(action: {
+                    let currentURLs = filteredAndSortedItems.map { $0.url }
+                    if selectedURLs.count == currentURLs.count {
+                        selectedURLs.removeAll()
+                    } else {
+                        selectedURLs = Set(currentURLs)
+                    }
+                }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "checkmark.square.fill")
+                        Text(selectedURLs.count == filteredAndSortedItems.count && !filteredAndSortedItems.isEmpty ? "全解除" : "全選択")
+                    }
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundColor(CosmicTheme.nebulaCyan)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 6)
+                    .background(CosmicTheme.nebulaCyan.opacity(0.15))
+                    .cornerRadius(8)
+                }
+                
+                Button(action: {
+                    isSelectionMode = false
                     selectedURLs.removeAll()
-                } else {
-                    selectedURLs = Set(currentURLs)
+                }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "xmark.circle")
+                        Text("閉じる")
+                    }
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundColor(CosmicTheme.cosmicTextSub)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 6)
+                    .background(Color.white.opacity(0.1))
+                    .cornerRadius(8)
                 }
-            }) {
-                HStack(spacing: 3) {
-                    Image(systemName: "checkmark.square.fill")
-                    Text(selectedURLs.count == filteredAndSortedItems.count && !filteredAndSortedItems.isEmpty ? "全解除" : "全選択")
+                
+                Text("\(selectedURLs.count)項目")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(CosmicTheme.starlightWhite)
+                    .padding(.horizontal, 4)
+                
+                Button(action: {
+                    compressSelectedItemsToZip(Array(selectedURLs))
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "doc.zipper")
+                        Text("ZIP圧縮")
+                    }
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundColor(.teal)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color.teal.opacity(0.18))
+                    .cornerRadius(8)
                 }
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                .foregroundColor(CosmicTheme.nebulaCyan)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 6)
-                .background(CosmicTheme.nebulaCyan.opacity(0.15))
-                .cornerRadius(8)
+                .disabled(selectedURLs.isEmpty)
+                
+                Button(action: {
+                    self.shareURLs = Array(selectedURLs)
+                    self.shareURL = nil
+                    self.isSharePresented = true
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "square.and.arrow.up")
+                        Text("共有")
+                    }
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundColor(CosmicTheme.starlightWhite)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(CosmicTheme.starlightWhite.opacity(0.15))
+                    .cornerRadius(8)
+                }
+                .disabled(selectedURLs.isEmpty)
+                
+                Button(action: {
+                    singleActionTargetURLs.removeAll()
+                    folderPickerAction = .copy
+                    showFolderPicker = true
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "doc.on.doc")
+                        Text("コピー")
+                    }
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundColor(CosmicTheme.nebulaCyan)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(CosmicTheme.nebulaCyan.opacity(0.15))
+                    .cornerRadius(8)
+                }
+                .disabled(selectedURLs.isEmpty)
+                
+                Button(action: {
+                    singleActionTargetURLs.removeAll()
+                    folderPickerAction = .move
+                    showFolderPicker = true
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "folder.line.flat")
+                        Text("移動")
+                    }
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundColor(CosmicTheme.nebulaPurple)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(CosmicTheme.nebulaPurple.opacity(0.15))
+                    .cornerRadius(8)
+                }
+                .disabled(selectedURLs.isEmpty)
+                
+                Button(action: {
+                    fileManager.deleteItems(urls: Array(selectedURLs))
+                    selectedURLs.removeAll()
+                    isSelectionMode = false
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "trash.fill")
+                        Text("削除")
+                    }
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundColor(CosmicTheme.singularityRed)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(CosmicTheme.singularityRed.opacity(0.15))
+                    .cornerRadius(8)
+                }
+                .disabled(selectedURLs.isEmpty)
             }
-            
-            Button(action: {
-                isSelectionMode = false
-                selectedURLs.removeAll()
-            }) {
-                HStack(spacing: 3) {
-                    Image(systemName: "xmark.circle")
-                    Text("閉じる")
-                }
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                .foregroundColor(CosmicTheme.cosmicTextSub)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 6)
-                .background(Color.white.opacity(0.1))
-                .cornerRadius(8)
-            }
-            
-            Spacer()
-            
-            Text("\(selectedURLs.count)項目")
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .foregroundColor(CosmicTheme.starlightWhite)
-            
-            Spacer()
-            
-            Button(action: {
-                self.shareURLs = Array(selectedURLs)
-                self.shareURL = nil
-                self.isSharePresented = true
-            }) {
-                HStack(spacing: 4) {
-                    Image(systemName: "square.and.arrow.up")
-                    Text("共有")
-                }
-                .font(.system(size: 12, weight: .bold, design: .monospaced))
-                .foregroundColor(CosmicTheme.starlightWhite)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(CosmicTheme.starlightWhite.opacity(0.15))
-                .cornerRadius(8)
-            }
-            .disabled(selectedURLs.isEmpty)
-            
-            Button(action: {
-                singleActionTargetURLs.removeAll()
-                folderPickerAction = .copy
-                showFolderPicker = true
-            }) {
-                HStack(spacing: 4) {
-                    Image(systemName: "doc.on.doc")
-                    Text("コピー")
-                }
-                .font(.system(size: 12, weight: .bold, design: .monospaced))
-                .foregroundColor(CosmicTheme.nebulaCyan)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(CosmicTheme.nebulaCyan.opacity(0.15))
-                .cornerRadius(8)
-            }
-            .disabled(selectedURLs.isEmpty)
-            
-            Button(action: {
-                singleActionTargetURLs.removeAll()
-                folderPickerAction = .move
-                showFolderPicker = true
-            }) {
-                HStack(spacing: 4) {
-                    Image(systemName: "folder.line.flat")
-                    Text("移動")
-                }
-                .font(.system(size: 12, weight: .bold, design: .monospaced))
-                .foregroundColor(CosmicTheme.nebulaPurple)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(CosmicTheme.nebulaPurple.opacity(0.15))
-                .cornerRadius(8)
-            }
-            .disabled(selectedURLs.isEmpty)
-            
-            Button(action: {
-                fileManager.deleteItems(urls: Array(selectedURLs))
-                selectedURLs.removeAll()
-                isSelectionMode = false
-            }) {
-                HStack(spacing: 4) {
-                    Image(systemName: "trash.fill")
-                    Text("削除")
-                }
-                .font(.system(size: 12, weight: .bold, design: .monospaced))
-                .foregroundColor(CosmicTheme.singularityRed)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(CosmicTheme.singularityRed.opacity(0.15))
-                .cornerRadius(8)
-            }
-            .disabled(selectedURLs.isEmpty)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
         .background(CosmicTheme.deepSpaceCard)
         .border(width: 1, edges: [.bottom], color: CosmicTheme.nebulaCyan.opacity(0.4))
     }
@@ -979,6 +1068,23 @@ struct ContentView: View {
             renameNewName = item.name
         }) {
             Label("名称変更", systemImage: "pencil")
+        }
+        
+        Divider()
+        
+        // ZIP 解凍・圧縮メニュー
+        if !item.isDirectory && item.url.pathExtension.lowercased() == "zip" {
+            Button(action: {
+                extractZipArchiveItem(item)
+            }) {
+                Label("ZIPをここに解凍", systemImage: "archivebox.fill")
+            }
+        }
+        
+        Button(action: {
+            compressSelectedItemsToZip([item.url])
+        }) {
+            Label("ZIPに圧縮", systemImage: "doc.zipper")
         }
         
         // フォルダ専用：鍵・ロック機能（認証必須）
@@ -1346,13 +1452,60 @@ struct ContentView: View {
                 let ext = item.url.pathExtension.lowercased()
                 let videoExtensions = ["mp4", "mov", "m4v", "mkv", "avi", "webm", "3gp"]
                 let audioExtensions = ["mp3", "m4a", "wav", "aac", "flac", "aiff", "alac", "ogg"]
-                if videoExtensions.contains(ext) {
+                if ext == "zip" {
+                    extractZipArchiveItem(item)
+                } else if videoExtensions.contains(ext) {
                     videoPlayingItem = item
                 } else if audioExtensions.contains(ext) {
                     audioPlayingItem = item
                 } else {
                     viewingItem = item
                 }
+            }
+        }
+    }
+    
+    // MARK: - ZIP 圧縮・解凍アクション
+    
+    private func compressSelectedItemsToZip(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        let targetDir = currentDirectoryURL ?? fileManager.rootDirectoryURL
+        fileManager.compressItems(urls: urls, in: targetDir) { result in
+            if isSelectionMode {
+                selectedURLs.removeAll()
+                isSelectionMode = false
+            }
+            switch result {
+            case .success(let zipURL):
+                withAnimation {
+                    importedNotificationText = "📦 ZIP圧縮完了: \(zipURL.lastPathComponent)"
+                }
+            case .failure(let error):
+                withAnimation {
+                    importedNotificationText = "⚠️ ZIP圧縮エラー: \(error.localizedDescription)"
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+                withAnimation { importedNotificationText = nil }
+            }
+        }
+    }
+    
+    private func extractZipArchiveItem(_ item: FileItem) {
+        let targetDir = currentDirectoryURL ?? fileManager.rootDirectoryURL
+        fileManager.extractZipItem(at: item.url, in: targetDir) { result in
+            switch result {
+            case .success(let folderURL):
+                withAnimation {
+                    importedNotificationText = "📂 ZIP解凍完了: \(folderURL.lastPathComponent)"
+                }
+            case .failure(let error):
+                withAnimation {
+                    importedNotificationText = "⚠️ ZIP解凍エラー: \(error.localizedDescription)"
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+                withAnimation { importedNotificationText = nil }
             }
         }
     }

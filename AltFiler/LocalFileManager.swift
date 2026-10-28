@@ -35,6 +35,8 @@ public final class LocalFileManager: ObservableObject {
     @Published public private(set) var rootItems: [FileItem] = []
     @Published public private(set) var appStorageBytes: Int64 = 0
     @Published public private(set) var freeDiskSpaceBytes: Int64 = 0
+    @Published public private(set) var totalFileCount: Int = 0
+    @Published public private(set) var totalFolderCount: Int = 0
     
     // 進捗ステータス管理
     @Published public var isOperating: Bool = false
@@ -305,6 +307,80 @@ public final class LocalFileManager: ObservableObject {
         }
     }
     
+    // MARK: - ZIP 圧縮・解凍操作
+    
+    /// 選択されたファイル・フォルダ群を `.zip` アーカイブに圧縮
+    public func compressItems(urls: [URL], in directoryURL: URL, completion: ((Result<URL, Error>) -> Void)? = nil) {
+        guard !urls.isEmpty else { return }
+        
+        let baseName: String
+        if urls.count == 1, let first = urls.first {
+            baseName = first.deletingPathExtension().lastPathComponent
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyyMMdd_HHmmss"
+            baseName = "Archive_\(formatter.string(from: Date()))"
+        }
+        
+        let initialZipURL = directoryURL.appendingPathComponent("\(baseName).zip")
+        let finalZipURL = generateUniqueURL(for: initialZipURL)
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+            DispatchQueue.main.async {
+                self.isOperating = true
+                self.operationTitle = "ZIP圧縮中..."
+                self.operationProgress = 0.0
+            }
+            
+            do {
+                try ZipArchiver.createZip(from: urls, to: finalZipURL) { progress in
+                    DispatchQueue.main.async {
+                        self.operationProgress = progress
+                    }
+                }
+                DispatchQueue.main.async {
+                    self.refreshStorageInfo()
+                    self.isOperating = false
+                    completion?(.success(finalZipURL))
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.isOperating = false
+                    completion?(.failure(error))
+                }
+            }
+        }
+    }
+    
+    /// `.zip` ファイルを指定ディレクトリ内に解凍
+    public func extractZipItem(at zipURL: URL, in directoryURL: URL, completion: ((Result<URL, Error>) -> Void)? = nil) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            DispatchQueue.main.async {
+                self.isOperating = true
+                self.operationTitle = "ZIP解凍中..."
+                self.operationProgress = 0.0
+            }
+            
+            do {
+                let extractedFolderURL = try ZipArchiver.extractZip(at: zipURL, to: directoryURL) { progress in
+                    DispatchQueue.main.async {
+                        self.operationProgress = progress
+                    }
+                }
+                DispatchQueue.main.async {
+                    self.refreshStorageInfo()
+                    self.isOperating = false
+                    completion?(.success(extractedFolderURL))
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.isOperating = false
+                    completion?(.failure(error))
+                }
+            }
+        }
+    }
+    
     // MARK: - キャッシュ自動パージ・クリーンアップ
     
     public func purgeTemporaryDirectory() {
@@ -323,25 +399,40 @@ public final class LocalFileManager: ObservableObject {
     // MARK: - 容量計測
     
     public func refreshStorageInfo() {
-        self.appStorageBytes = calculateDirectorySize(at: rootDirectoryURL)
+        let stats = calculateDirectoryStats(at: rootDirectoryURL)
+        self.appStorageBytes = stats.totalSize
+        self.totalFileCount = stats.fileCount
+        self.totalFolderCount = stats.folderCount
         self.freeDiskSpaceBytes = calculateFreeDiskSpace()
         self.rootItems = listItems(at: rootDirectoryURL)
     }
     
-    private func calculateDirectorySize(at url: URL) -> Int64 {
+    private func calculateDirectoryStats(at url: URL) -> (totalSize: Int64, fileCount: Int, folderCount: Int) {
         let fileManager = FileManager.default
-        guard let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]) else {
-            return 0
+        guard let enumerator = fileManager.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return (0, 0, 0)
         }
         
         var totalSize: Int64 = 0
+        var files = 0
+        var folders = 0
         for case let fileURL as URL in enumerator {
-            if let resourceValues = try? fileURL.resourceValues(forKeys: [.fileSizeKey]),
-               let size = resourceValues.fileSize {
-                totalSize += Int64(size)
+            if let resourceValues = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey]) {
+                if resourceValues.isDirectory == true {
+                    folders += 1
+                } else {
+                    files += 1
+                    if let size = resourceValues.fileSize {
+                        totalSize += Int64(size)
+                    }
+                }
             }
         }
-        return totalSize
+        return (totalSize, files, folders)
     }
     
     private func calculateFreeDiskSpace() -> Int64 {

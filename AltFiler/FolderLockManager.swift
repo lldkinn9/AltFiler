@@ -1,14 +1,25 @@
 import Foundation
 import LocalAuthentication
 import Combine
+import CryptoKit
+import Security
 
-/// フォルダの鍵（パスワード・生体認証保護）管理クラス
+/// フォルダの鍵およびアプリ全体のセキュリティ（Keychain + SHA-256・生体認証・起動ロック・プライバシーシールド）管理クラス
 public final class FolderLockManager: ObservableObject {
     public static let shared = FolderLockManager()
     
     private let userDefaults = UserDefaults.standard
     private let lockedFolderPathsKey = "AltFiler_LockedFolderPaths"
-    private let masterPasswordHashKey = "AltFiler_MasterPasswordHash"
+    private let legacyMasterPasswordHashKey = "AltFiler_MasterPasswordHash"
+    
+    // 設定キー
+    private let appLockEnabledKey = "AltFiler_AppLockEnabled"
+    private let biometricsEnabledKey = "AltFiler_BiometricsEnabled"
+    private let privacyShieldEnabledKey = "AltFiler_PrivacyShieldEnabled"
+    
+    // Keychain 識別子
+    private let keychainService = "com.altfiler.security.keychain"
+    private let keychainAccount = "AltFiler_MasterPassword_SHA256"
     
     /// セッション内で一時解錠されたフォルダURLセット
     @Published public private(set) var sessionUnlockedURLs: Set<URL> = []
@@ -16,8 +27,60 @@ public final class FolderLockManager: ObservableObject {
     /// ロックされているフォルダパス一覧（相対パス）
     @Published public private(set) var lockedPaths: Set<String> = []
     
+    /// マスターパスワード設定状態（UI更新トリガー用）
+    @Published public private(set) var isMasterPasswordConfigured: Bool = false
+    
+    /// アプリ起動ロックが有効か
+    @Published public var isAppLockEnabled: Bool {
+        didSet {
+            userDefaults.set(isAppLockEnabled, forKey: appLockEnabledKey)
+            if isAppLockEnabled {
+                isAppUnlockedForSession = true
+            }
+        }
+    }
+    
+    /// Face ID / Touch ID 生体認証を使用するか（デフォルト: ON）
+    @Published public var isBiometricsEnabled: Bool {
+        didSet {
+            userDefaults.set(isBiometricsEnabled, forKey: biometricsEnabledKey)
+        }
+    }
+    
+    /// バックグラウンド移行時のブラー保護シールドを有効にするか（デフォルト: ON）
+    @Published public var isPrivacyShieldEnabled: Bool {
+        didSet {
+            userDefaults.set(isPrivacyShieldEnabled, forKey: privacyShieldEnabledKey)
+        }
+    }
+    
+    /// アプリ起動ロックが現在解錠されているか
+    @Published public var isAppUnlockedForSession: Bool = true
+    
     private init() {
+        let savedAppLock = userDefaults.bool(forKey: appLockEnabledKey)
+        let savedBiometrics = userDefaults.object(forKey: biometricsEnabledKey) as? Bool ?? true
+        let savedPrivacyShield = userDefaults.object(forKey: privacyShieldEnabledKey) as? Bool ?? true
+        
+        self.isAppLockEnabled = savedAppLock
+        self.isBiometricsEnabled = savedBiometrics
+        self.isPrivacyShieldEnabled = savedPrivacyShield
+        
+        // 旧UserDefaultsハッシュがあれば削除してクリーンアップ
+        if userDefaults.string(forKey: legacyMasterPasswordHashKey) != nil {
+            userDefaults.removeObject(forKey: legacyMasterPasswordHashKey)
+        }
+        
         loadLockedPaths()
+        let hasPass = readHashFromKeychain() != nil
+        self.isMasterPasswordConfigured = hasPass
+        
+        // アプリ起動ロックがONかつパスワード設定済みの場合は起動時ロック状態から開始
+        if savedAppLock && hasPass {
+            self.isAppUnlockedForSession = false
+        } else {
+            self.isAppUnlockedForSession = true
+        }
     }
     
     // MARK: - 永続化データ読み書き
@@ -73,32 +136,112 @@ public final class FolderLockManager: ObservableObject {
         return false
     }
     
-    // MARK: - パスワード管理（認証必須・無条件リセット廃止）
+    // MARK: - Keychain + CryptoKit (SHA-256) パスワード管理
     
     /// マスターパスワードが設定されているか
     public var hasMasterPassword: Bool {
-        return userDefaults.string(forKey: masterPasswordHashKey) != nil
+        return readHashFromKeychain() != nil
     }
     
-    /// パスワードを設定
+    /// パスワードを SHA-256 ハッシュ化して Keychain に保存
     public func setMasterPassword(_ rawPassword: String) {
-        let hash = simpleHash(rawPassword)
-        userDefaults.set(hash, forKey: masterPasswordHashKey)
+        let trimmed = rawPassword.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let hash = sha256Hex(trimmed)
+        saveHashToKeychain(hash)
+        isMasterPasswordConfigured = true
     }
     
     /// パスワードの検証（未設定時は false を返す厳格仕様）
     public func verifyPassword(_ rawPassword: String) -> Bool {
-        guard let storedHash = userDefaults.string(forKey: masterPasswordHashKey) else {
+        guard let storedHash = readHashFromKeychain() else {
             return false
         }
-        return storedHash == simpleHash(rawPassword)
+        let trimmed = rawPassword.trimmingCharacters(in: .whitespacesAndNewlines)
+        return storedHash == sha256Hex(trimmed)
     }
     
-    private func simpleHash(_ input: String) -> String {
-        return String(input.utf8.reduce(5381) { ($0 << 5) &+ $0 &+ Int($1) })
+    /// 現在のパスワードまたは生体認証を確認した上でマスターパスワードを変更
+    public func changeMasterPassword(currentPassword: String?, authenticatedByBiometrics: Bool = false, newPassword: String) -> Bool {
+        let trimmedNew = newPassword.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedNew.isEmpty else { return false }
+        
+        if hasMasterPassword {
+            let isVerified = authenticatedByBiometrics || verifyPassword(currentPassword ?? "")
+            guard isVerified else { return false }
+        }
+        
+        setMasterPassword(trimmedNew)
+        return true
     }
     
-    // MARK: - ロック設定操作
+    /// CryptoKit SHA-256 ハッシュ生成
+    private func sha256Hex(_ input: String) -> String {
+        let data = Data(input.utf8)
+        let digest = SHA256.hash(data: data)
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+    
+    /// Keychain へのハッシュ保存
+    private func saveHashToKeychain(_ hash: String) {
+        guard let data = hash.data(using: .utf8) else { return }
+        
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount
+        ]
+        
+        let attributesToUpdate: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
+        
+        let status = SecItemUpdate(query as CFDictionary, attributesToUpdate as CFDictionary)
+        if status == errSecItemNotFound {
+            var newItem = query
+            newItem[kSecValueData as String] = data
+            newItem[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            SecItemAdd(newItem as CFDictionary, nil)
+        }
+    }
+    
+    /// Keychain からのハッシュ読み出し
+    private func readHashFromKeychain() -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess,
+              let data = item as? Data,
+              let hash = String(data: data, encoding: .utf8),
+              !hash.isEmpty else {
+            return nil
+        }
+        return hash
+    }
+    
+    // MARK: - アプリ起動ロック＆セッション制御
+    
+    /// バックグラウンド移行時にセッションロックを適用
+    public func handleAppDidEnterBackground() {
+        if isAppLockEnabled && hasMasterPassword {
+            isAppUnlockedForSession = false
+        }
+    }
+    
+    /// アプリ起動ロックを解錠
+    public func unlockAppForSession() {
+        isAppUnlockedForSession = true
+    }
+    
+    // MARK: - フォルダロック設定操作
     
     /// フォルダのロック保護を有効化
     public func lockFolder(url: URL) {
@@ -123,8 +266,30 @@ public final class FolderLockManager: ObservableObject {
     
     // MARK: - 生体認証 (Face ID / Touch ID)
     
+    /// 端末が生体認証に対応しているか＆種類名を取得
+    public var biometricTypeName: String {
+        let context = LAContext()
+        var error: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
+            return "生体認証"
+        }
+        switch context.biometryType {
+        case .faceID: return "Face ID"
+        case .touchID: return "Touch ID"
+        case .opticID: return "Optic ID"
+        @unknown default: return "生体認証"
+        }
+    }
+    
     /// 生体認証（Face ID / Touch ID）を試行
     public func authenticateWithBiometrics(reason: String, completion: @escaping (Bool) -> Void) {
+        guard isBiometricsEnabled else {
+            DispatchQueue.main.async {
+                completion(false)
+            }
+            return
+        }
+        
         let context = LAContext()
         var error: NSError?
         
@@ -145,4 +310,3 @@ public final class FolderLockManager: ObservableObject {
         }
     }
 }
-
