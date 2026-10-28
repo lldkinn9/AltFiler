@@ -276,6 +276,7 @@ struct SettingsSheetView: View {
                                     Spacer()
                                 }
                                 
+                                #if DEBUG
                                 Button {
                                     withAnimation {
                                         proManager.isProUnlocked = false
@@ -283,11 +284,12 @@ struct SettingsSheetView: View {
                                         proManager.statusMessage = nil
                                     }
                                 } label: {
-                                    Text("無料版（広告バナー表示）のプレビューに戻す")
+                                    Text("[DEBUG] 無料版（広告バナー表示）のプレビューに戻す")
                                         .font(.caption.weight(.semibold))
                                         .foregroundStyle(.cyan)
                                 }
                                 .padding(.top, 2)
+                                #endif
                             }
                             .padding(.vertical, 4)
                         } else {
@@ -385,16 +387,17 @@ struct SettingsSheetView: View {
                             .padding(.vertical, 6)
                         }
                         
+                        #if DEBUG
                         Toggle(isOn: $proManager.isAdBannerMockEnabled) {
                             HStack(spacing: 12) {
                                 Image(systemName: "rectangle.bottomthird.inset.filled")
                                     .foregroundStyle(.cyan)
                                     .frame(width: 26)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text("広告バナーのデザインモック表示")
+                                    Text("[DEBUG] 広告バナー表示テスト")
                                         .font(.subheadline.weight(.medium))
                                         .foregroundStyle(.white)
-                                    Text("メイン画面下部でのバナー広告の見え方を確認します")
+                                    Text("開発ビルド限定：メイン画面下部の広告枠表示を切り替えます")
                                         .font(.caption2)
                                         .foregroundStyle(.white.opacity(0.55))
                                 }
@@ -402,6 +405,7 @@ struct SettingsSheetView: View {
                         }
                         .tint(.cyan)
                         .disabled(proManager.isProUnlocked)
+                        #endif
                     } header: {
                         Text("プレミアム・広告非表示 (AltFiler Pro)")
                             .foregroundStyle(.cyan)
@@ -1050,12 +1054,12 @@ struct LegalSectionItem: Identifiable {
 enum LegalDocumentContent {
     static let privacyPolicySections: [LegalSectionItem] = [
         LegalSectionItem(
-            heading: "1. 基本方針（100%ローカル完結）",
-            bodyText: "「AltFiler」（以下「本アプリ」）は、ユーザーのプライバシー保護を最優先に設計されています。本アプリ内で取り込まれたすべてのファイル、フォルダ構造、ブックマーク、クリップ設定、および認証情報は、お客様のデバイス（iPhone / iPad）内の独立したローカルストレージおよび iOS Keychain 内にのみ保存され、外部サーバーへ送信・収集されることは一切ありません。"
+            heading: "1. ファイル・データの100%ローカル保存",
+            bodyText: "「AltFiler」（以下「本アプリ」）内で取り込まれたすべてのファイル、フォルダ構造、お気に入り設定、再生クリップ情報、および認証情報は、お客様のデバイス（iPhone / iPad）内の独立したローカル領域および iOS Keychain 内にのみ保存されます。保存されたファイルや閲覧履歴・検索履歴が外部サーバーへ送信・収集されることは一切ありません。"
         ),
         LegalSectionItem(
-            heading: "2. 個人情報の収集・外部送信について",
-            bodyText: "本アプリは、外部の分析ツール、広告SDK、クラウド送信APIを一切含んでいません。氏名、メールアドレス、端末識別子、閲覧履歴、検索履歴、メディア再生履歴などの個人データや利用状況データを開発者または第三者へ送信することはありません。"
+            heading: "2. 広告配信およびトラッキング許可（ATT）について",
+            bodyText: "本アプリの無料版では、アプリ運営維持のため画面下部に第三者配信の広告サービス（Google AdMob）によるバナー広告を表示する場合があります。iOS の App Tracking Transparency（ATT）ダイアログでお客様が許可された場合に限り、最適な広告配信のために広告識別子（IDFA）が利用されます。許可しない場合でも本アプリの全機能をご利用いただけます。また、「AltFiler Pro（広告非表示）」をご購入いただいた場合、広告表示および広告SDKによる通信は完全に停止されます。"
         ),
         LegalSectionItem(
             heading: "3. 生体認証（Face ID / Touch ID）およびパスワード保護",
@@ -1063,7 +1067,7 @@ enum LegalDocumentContent {
         ),
         LegalSectionItem(
             heading: "4. 写真ライブラリ・ファイルへのアクセス権限",
-            bodyText: "ユーザーが明示的に「写真から追加」または「ファイルから追加」を選択した場合に限り、選択されたメディアや書類を本アプリ内へコピーするためにのみアクセスします。"
+            bodyText: "お客様が明示的に「写真・動画を取り込む」または「外部ファイルを取り込む」を選択した場合に限り、選択されたメディアや書類を本アプリ内へコピーするためにのみアクセスします。"
         )
     ]
     
@@ -1073,16 +1077,16 @@ enum LegalDocumentContent {
             bodyText: "AltFiler は、お客様の端末内で独立してファイルを整理・再生するためのローカルファイル管理＆メディアプレイヤーアプリです。"
         ),
         LegalSectionItem(
-            heading: "2. データの管理とバックアップに関するご注意",
-            bodyText: "本アプリは高いプライバシー性を維持するため、外部クラウドへの自動アップロードや「ごみ箱」フォルダを設けていません。アプリ内で削除したファイルや、アプリ自体を端末からアンインストールした場合のデータは復元できませんので、重要なデータは必要に応じて「共有・書き出し」機能等でお客様ご自身にてバックアップを行ってください。"
+            heading: "2. アプリ内課金（AltFiler Pro・買い切り）について",
+            bodyText: "「AltFiler Pro（広告非表示）」は Apple 公式の App Store 決済（StoreKit）による非消耗型（一度の購入で永続有効な買い切り型）アイテムです。機種変更時やアプリの再インストール時は、設定画面の「購入を復元する」ボタンからいつでも無料で購入状態を復元できます。"
         ),
         LegalSectionItem(
-            heading: "3. パスワードの管理について",
-            bodyText: "セキュリティ保護の厳格化のため、マスターパスワードのバックドアや無条件リセット機能は搭載しておりません。設定されたマスターパスワードをお忘れにならないようご注意ください。"
+            heading: "3. データの管理とバックアップに関するご注意",
+            bodyText: "本アプリは高いプライバシー性を維持するため、外部クラウドへの自動アップロードや「ごみ箱」フォルダを設けていません。アプリ内で削除したファイルや、アプリ自体を端末からアンインストールした場合のデータは復元できませんので、重要なデータは必要に応じて「共有」機能等でお客様ご自身にてバックアップを行ってください。"
         ),
         LegalSectionItem(
-            heading: "4. 免責事項",
-            bodyText: "本アプリの利用または利用不能により生じたいかなる損害（データの消失等を含む）についても、法令上の責任が認められる場合を除き、開発者は一切の責任を負いかねます。"
+            heading: "4. パスワードの管理および免責事項",
+            bodyText: "セキュリティ保護の厳格化のため、マスターパスワードの無条件リセット機能は搭載しておりません。設定されたパスワードをお忘れにならないようご注意ください。本アプリの利用または利用不能により生じたいかなる損害（データの消失等を含む）についても、法令上の責任が認められる場合を除き、開発者は一切の責任を負いかねます。"
         )
     ]
 }
