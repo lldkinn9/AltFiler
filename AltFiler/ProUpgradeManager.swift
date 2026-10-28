@@ -210,9 +210,9 @@ public final class ProUpgradeManager: ObservableObject {
         }
     }
     
-    /// 表示用の価格テキスト（App Store 取得前は参考価格 ¥300 を表示）
+    /// 表示用の価格テキスト（App Store 取得前は設定価格 ¥500 を表示）
     public var displayPrice: String {
-        proProduct?.displayPrice ?? "¥300"
+        proProduct?.displayPrice ?? "¥500"
     }
 }
 

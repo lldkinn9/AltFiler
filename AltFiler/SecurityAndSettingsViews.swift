@@ -386,26 +386,6 @@ struct SettingsSheetView: View {
                             }
                             .padding(.vertical, 6)
                         }
-                        
-                        #if DEBUG
-                        Toggle(isOn: $proManager.isAdBannerMockEnabled) {
-                            HStack(spacing: 12) {
-                                Image(systemName: "rectangle.bottomthird.inset.filled")
-                                    .foregroundStyle(.cyan)
-                                    .frame(width: 26)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("[DEBUG] 広告バナー表示テスト")
-                                        .font(.subheadline.weight(.medium))
-                                        .foregroundStyle(.white)
-                                    Text("開発ビルド限定：メイン画面下部の広告枠表示を切り替えます")
-                                        .font(.caption2)
-                                        .foregroundStyle(.white.opacity(0.55))
-                                }
-                            }
-                        }
-                        .tint(.cyan)
-                        .disabled(proManager.isProUnlocked)
-                        #endif
                     } header: {
                         Text("プレミアム・広告非表示 (AltFiler Pro)")
                             .foregroundStyle(.cyan)
